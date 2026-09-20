@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+@theme {
+  --color-hull:      #0b1b2b;
+  --color-hull-2:    #12293f;
+  --color-ink:       #0f172a;
+  --color-chart:     #1f6feb;
+  --color-chart-2:   #0ea5a4;
+  --color-flag:      #dc2626;
+}
+
+:root { color-scheme: light; }
+
+html, body { height: 100%; }
+body {
+  background: #f6f7f9;
+  color: var(--color-ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Timeline bars need crisp edges at small sizes. */
+.tl-bar { box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08); }

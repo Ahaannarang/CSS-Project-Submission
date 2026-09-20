@@ -1,0 +1,19 @@
+# dependencies
+node_modules
+
+# build output
+.next
+out
+tsconfig.tsbuildinfo
+
+# local environment — never commit a connection string
+.env
+.env.local
+.env*.local
+
+# deploy
+.vercel
+
+# misc
+*.log
+.DS_Store
