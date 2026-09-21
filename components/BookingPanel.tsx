@@ -126,6 +126,19 @@ export default function BookingPanel({
   const canSave =
     datesValid && berthId != null && (kind === 'vessel' ? vesselId != null : title.trim().length > 0)
 
+  // Cmd/Ctrl+Enter saves from anywhere in the form; Escape is handled by the
+  // timeline so it closes the panel even when focus has not reached a field.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canSave && !busy) {
+        e.preventDefault()
+        save()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/30" onClick={onClose}>
       <aside
@@ -311,6 +324,7 @@ export default function BookingPanel({
             className="rounded-lg bg-chart px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40">
             {busy ? 'Saving…' : editing ? 'Save changes' : 'Book it'}
           </button>
+          <span className="hidden text-xs text-slate-400 sm:inline">⌘↵</span>
           <button onClick={onClose} className="rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100">Cancel</button>
           {editing && (
             <button onClick={cancelBooking} disabled={busy}

@@ -113,6 +113,8 @@ export default function Audit({ berths }: { berths: Berth[] }) {
         ))}
       </div>
 
+      <ByYear rows={data?.by_year ?? []} active={year} onPick={(y) => setYear(y === year ? '' : y)} />
+
       <div className="flex flex-wrap items-center gap-3">
         <p className="text-sm text-slate-600">{TABS.find((t) => t.key === tab)?.blurb}</p>
         <div className="ml-auto flex items-center gap-2">
@@ -240,6 +242,57 @@ function describe(i: Issue) {
     default:
       return <span className="text-slate-600">{d.text ?? d.reason}</span>
   }
+}
+
+/**
+ * Issues per year — the PRD's "spots bad seasons" view.
+ *
+ * One series of counts, so one blue hue: the bar height already carries the
+ * magnitude and a second colour would encode nothing. The busiest years are
+ * labelled rather than every bar, and clicking one filters the table below, so
+ * the chart is a control and not just a picture.
+ */
+function ByYear({ rows, active, onPick }: { rows: any[]; active: string; onPick: (y: string) => void }) {
+  if (!rows.length) return null
+  const max = Math.max(...rows.map((r) => r.n))
+  const total = rows.reduce((s, r) => s + r.n, 0)
+  const worst = rows.reduce((a, b) => (b.n > a.n ? b : a), rows[0])
+
+  return (
+    <section className="rounded-xl border border-slate-300 bg-white px-5 py-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-semibold">Issues by year</h2>
+        <p className="text-xs text-slate-500">
+          {total} across {rows.length} year{rows.length === 1 ? '' : 's'} · worst was {worst.year} with {worst.n}
+          {active ? ' · click a bar again to clear' : ' · click a bar to filter'}
+        </p>
+      </div>
+      <div className="mt-4 flex h-28 items-end gap-1">
+        {rows.map((r) => {
+          const on = String(r.year) === active
+          return (
+            <button key={r.year} onClick={() => onPick(String(r.year))}
+              title={`${r.year}: ${r.n} issue${r.n === 1 ? '' : 's'}`}
+              className="group flex flex-1 flex-col items-center justify-end gap-1">
+              <span className={`text-[10px] tabular-nums transition ${
+                r.n >= max * 0.7 || on ? 'text-slate-600 opacity-100' : 'text-slate-500 opacity-0 group-hover:opacity-100'}`}>
+                {r.n}
+              </span>
+              <span className="w-full rounded-t-[3px] transition-[filter] group-hover:brightness-110"
+                style={{
+                  height: `${Math.max((r.n / max) * 100, 2)}%`,
+                  background: on ? '#104281' : '#2a78d6',
+                  minHeight: 2,
+                }} />
+              <span className={`text-[10px] tabular-nums ${on ? 'font-semibold text-slate-900' : 'text-slate-500'}`}>
+                {String(r.year).slice(2)}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </section>
+  )
 }
 
 function Stat({ label, value, tone }: { label: string; value: number | undefined; tone?: 'good' | 'bad' | 'warn' }) {

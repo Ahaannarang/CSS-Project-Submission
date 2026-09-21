@@ -20,6 +20,42 @@ export default function Reference({ initialBerths }: { initialBerths: Berth[] })
   const [onlyMissing, setOnlyMissing] = useState(false)
   const [notice, setNotice] = useState<{ tone: 'ok' | 'warn' | 'bad'; text: string } | null>(null)
   const [adding, setAdding] = useState(false)
+  const [margin, setMargin] = useState<number | null>(null)
+  const [marginDraft, setMarginDraft] = useState('')
+
+  useEffect(() => {
+    fetch('/api/settings', { cache: 'no-store' }).then((r) => r.json()).then((j) => {
+      setMargin(j.settings?.margin_ft ?? 0)
+      setMarginDraft(String(j.settings?.margin_ft ?? 0))
+    })
+  }, [])
+
+  const saveMargin = async () => {
+    const send = (confirm?: boolean) =>
+      fetch('/api/settings', {
+        method: 'PATCH', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ margin_ft: Number(marginDraft), confirm }),
+      })
+    let res = await send()
+    if (res.status === 409) {
+      const j = await res.json()
+      if (!window.confirm(`${j.message}\n\nFlag those bookings and continue?`)) return
+      res = await send(true)
+    }
+    const j = await res.json().catch(() => ({}))
+    if (res.ok) {
+      setMargin(j.margin_ft)
+      setNotice({
+        tone: j.reflagged ? 'warn' : 'ok',
+        text: j.reflagged
+          ? `Clearance set to ${j.margin_ft} ft; ${j.reflagged} booking(s) flagged as too tight.`
+          : `Clearance set to ${j.margin_ft} ft.`,
+      })
+      reloadBerths()
+    } else {
+      setNotice({ tone: 'bad', text: j.message ?? 'That clearance could not be saved.' })
+    }
+  }
 
   const loadVessels = useCallback(async () => {
     const p = new URLSearchParams()
@@ -135,6 +171,32 @@ export default function Reference({ initialBerths }: { initialBerths: Berth[] })
       {adding && (tab === 'berths'
         ? <CreateBerth onCreate={createBerth} onCancel={() => setAdding(false)} />
         : <CreateVessel onCreate={createVessel} onCancel={() => setAdding(false)} />)}
+
+      {tab === 'berths' && margin != null && (
+        <section className="rounded-xl border border-slate-300 bg-white px-4 py-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Clearance margin
+              </span>
+              <input value={marginDraft} onChange={(e) => setMarginDraft(e.target.value)} inputMode="decimal"
+                className="w-28 rounded-lg border border-slate-300 px-3 py-2 text-sm tabular-nums outline-none focus:border-chart" />
+            </label>
+            <span className="pb-2.5 text-sm text-slate-500">ft</span>
+            {String(margin) !== marginDraft && (
+              <button onClick={saveMargin}
+                className="mb-0.5 rounded-lg bg-chart px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
+                Save
+              </button>
+            )}
+            <p className="mb-1 max-w-xl text-xs text-slate-500">
+              A vessel fits when <span className="font-mono">vessel + margin ≤ berth</span> (A3). At {margin} ft, a{' '}
+              {90 - Number(margin || 0)} ft vessel is the longest that fits a 90 ft berth. Raising it re-checks every
+              existing booking and flags any that become too tight.
+            </p>
+          </div>
+        </section>
+      )}
 
       {tab === 'berths' ? (
         <div className="overflow-hidden rounded-xl border border-slate-300 bg-white">

@@ -400,6 +400,68 @@ async function runChecks() {
   const csvIssues = await api('/api/export?what=issues')
   check('exports the audit as CSV', csvIssues.status === 200 && csvIssues.text.startsWith('issue,'), csvIssues.text?.slice(0, 40))
 
+  // ---------------------------------------------------------------- A3 settings
+  G('A3 — Configurable clearance margin')
+  const s0 = await api('/api/settings')
+  check('reads the settings', typeof s0.body.settings?.margin_ft === 'number', s0.body)
+  check('margin starts at 0', s0.body.settings.margin_ft === 0, s0.body.settings)
+
+  const sBad = await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ margin_ft: -5 }) })
+  check('rejects a negative margin', sBad.status === 400, sBad.status)
+
+  const sWarn = await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ margin_ft: 200 }) })
+  check('warns before a margin that breaks bookings (409)', sWarn.status === 409, sWarn.status)
+  check('lists what would become too tight', sWarn.body?.affected?.length > 0, sWarn.body?.affected?.length)
+  const stillZero = await api('/api/settings')
+  check('an unconfirmed change does not take effect', stillZero.body.settings.margin_ft === 0)
+
+  // a margin small enough to change the suggester but break nothing
+  const sOk = await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ margin_ft: 2, confirm: true }) })
+  check('accepts a valid margin', sOk.status === 200, sOk.body)
+  const sugMargin = await api(`/api/suggest?vessel=${v72.id}&start=2034-05-01&end=2034-05-03`)
+  check('the margin is applied to fit', sugMargin.body.suggestions?.[0]?.slack_ft === 3, sugMargin.body.suggestions?.[0])
+  const marginBlocks = await api('/api/reservations', {
+    method: 'POST',
+    body: JSON.stringify({ kind: 'vessel', berth_id: face.id, vessel_id: v72.id, start_date: '2034-05-01', end_date: '2034-05-03' }),
+  })
+  check('a booking within the margin still saves', marginBlocks.status === 201, marginBlocks.body)
+  if (marginBlocks.body?.id) {
+    await api(`/api/reservations/${marginBlocks.body.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'cancelled' }) })
+  }
+
+  const sBig = await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ margin_ft: 4, confirm: true }) })
+  check('a margin that no longer fits is enforced on new bookings', sBig.status === 200)
+  const tooTight = await api('/api/reservations', {
+    method: 'POST',
+    body: JSON.stringify({ kind: 'vessel', berth_id: face.id, vessel_id: v72.id, start_date: '2034-06-01', end_date: '2034-06-03' }),
+  })
+  check('72 ft + 4 ft clearance is refused by a 75 ft berth', tooTight.status === 422, tooTight.status)
+  await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ margin_ft: 0, confirm: true }) })
+
+  // ---------------------------------------------------------------- by-year chart
+  G('Audit — issues by year')
+  const yearAll = await api('/api/audit')
+  check('returns a by-year series', Array.isArray(yearAll.body.by_year) && yearAll.body.by_year.length > 0, yearAll.body.by_year?.length)
+  const yearMisfit = await api('/api/audit?kind=misfit')
+  check('the series follows the selected kind',
+    yearMisfit.body.by_year.length > 0 &&
+    yearMisfit.body.by_year.reduce((s: number, r: any) => s + r.n, 0) <
+      yearAll.body.by_year.reduce((s: number, r: any) => s + r.n, 0),
+    { misfit: yearMisfit.body.by_year.length, all: yearAll.body.by_year.length })
+  // The suite's own fixtures book into 2031-2034, so the upper bound is generous;
+  // what matters is that no issue carries a nonsensical year.
+  check('every year in the series is a plausible calendar year',
+    yearAll.body.by_year.every((r: any) => Number.isInteger(r.year) && r.year >= 1997 && r.year <= 2100),
+    yearAll.body.by_year.map((r: any) => r.year).filter((y: number) => y < 1997 || y > 2100))
+  // Annotations are only ever created by the import, so their years should sit
+  // inside the workbook's span exactly. (Misfits do not qualify: this suite
+  // creates some of its own by shortening a berth and raising the margin.)
+  const yearAnn = await api('/api/audit?kind=annotation')
+  check('import-only issues stay inside the workbook span 1997-2019',
+    yearAnn.body.by_year.length > 0 &&
+    yearAnn.body.by_year.every((r: any) => r.year >= 1997 && r.year <= 2019),
+    yearAnn.body.by_year.map((r: any) => r.year).filter((y: number) => y < 1997 || y > 2019))
+
   // ------------------------------------------------- Find a slot (availability)
   G('Find a slot — earliest workable windows')
   const av = await api(`/api/availability?vessel=${v72.id}&days=5&from=2033-01-01`)

@@ -35,7 +35,12 @@ export async function GET(req: NextRequest) {
       ORDER BY i.year NULLS LAST, i.id
       LIMIT ${limit} OFFSET ${offset}`,
     sql`SELECT i.kind, count(*)::int AS n FROM import_issues i WHERE i.resolved = false GROUP BY i.kind ORDER BY n DESC`,
-    sql`SELECT i.year, count(*)::int AS n FROM import_issues i WHERE i.year IS NOT NULL AND i.resolved = false GROUP BY i.year ORDER BY i.year`,
+    sql`
+      SELECT i.year, count(*)::int AS n FROM import_issues i
+      WHERE i.year IS NOT NULL AND i.resolved = false
+        ${kind ? sql`AND i.kind = ${kind}::issue_kind` : sql``}
+        ${berth ? sql`AND i.berth_id = ${Number(berth)}` : sql``}
+      GROUP BY i.year ORDER BY i.year`,
     sql`SELECT source, started_at, stats FROM import_runs ORDER BY id DESC LIMIT 1`,
     sql`SELECT count(*)::int AS n FROM import_issues i ${where}`,
   ])

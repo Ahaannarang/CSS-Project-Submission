@@ -79,7 +79,7 @@ Three additions that the data argued for:
 ## How to run it
 
 ```bash
-# 0. all tests: 86 unit + 110 end-to-end
+# 0. all tests: 86 unit + 125 end-to-end
 npm run test:all
 
 # 1. a Postgres with btree_gist (any Postgres 14+ will do)
@@ -97,7 +97,8 @@ npm run import
 # 4. go
 npm run dev        # http://localhost:3000
 npm test           # 86 unit tests
-npm run e2e        # 110 end-to-end checks (resets its own database, runs its own server)
+npm run e2e        # 125 end-to-end checks (resets its own database, runs its own server)
+npm run replay     # re-runs 23 years under best-fit and prints the comparison
 ```
 
 ## How to use it
@@ -150,7 +151,7 @@ inclusive dates is full of off-by-ones, so a booking is stored as `[start, end+1
 Back-to-back stays (1st–5th, then 6th–10th) do not collide; same-day turnover
 (1st–5th, then 5th–9th) does, which is the safer default for a dock (A7).
 
-### 4. Best-fit berth suggestion
+### 4. Best-fit berth suggestion — and the replay that checks it
 
 Of the berths that fit and are free, offer the **smallest**. Putting a 40 ft boat on
 the 410 ft pier is legal and quietly terrible, because that pier is the only berth a
@@ -162,6 +163,28 @@ When nothing is available the answer distinguishes the two cases that matter:
 *“No berth is long enough for R/V Enormous (500 ft)”* is a permanent no;
 *“All 2 berths that fit are booked for those dates”* comes with nearby dates and
 berths that free up partway through.
+
+Rather than assert that best-fit is better, `npm run replay` re-runs all 23 years
+and compares. It is deliberately conservative: a stay is only re-assigned when the
+vessel's length is on record, because that is the only case where *does it fit* can
+be answered. Every other stay keeps its recorded berth **and still occupies it**, so
+the replay competes for real space rather than an empty harbour.
+
+| Outcome over the 54 fit-checkable stays | As recorded | Best-fit |
+|---|---:|---:|
+| Vessels on a berth too short for them | **29** | **0** |
+| Stays that could not be placed at all | 0 | 0 |
+| Berth-days used on the 410 ft pier | 10 | 4 |
+
+Best-fit moved 49 of the 54: **30 onto a larger berth** — those are the misfits being
+corrected — and **19 onto a smaller one**, handing capacity back. On the longest pier
+it took 10 berth-days off and put 4 back where nothing smaller was free, a net **60%
+returned**. That is the argument for the heuristic in one line: it cannot create a
+misfit, because it will not choose a berth the vessel does not fit, and it stops the
+410 ft pier being spent on boats that fit a 55 ft one.
+
+The honest caveat is the same one that runs through this project: 54 stays is 2.6% of
+the record, because the other 97.4% have no vessel length to check.
 
 ### 5. Vessel names were **not** fuzzy-matched — deliberately
 
@@ -241,12 +264,12 @@ Two assumptions were **added** while reading the real file:
 
 ## Testing
 
-Two layers, **196 checks** in total, and no mocks for the rules: they run against a
+Two layers, **211 checks** in total, and no mocks for the rules: they run against a
 real Postgres, because the rules *are* the database.
 
 `npm test` — **86 unit tests** over the rules, the suggester, the availability
 search and the parser.
-`npm run e2e` — **110 end-to-end checks** over real HTTP. It resets its own
+`npm run e2e` — **125 end-to-end checks** over real HTTP. It resets its own
 database, imports the workbook, starts its own server and tears it down, so it is
 repeatable and each check names the requirement it covers.
 
@@ -283,6 +306,24 @@ the heatmap grid, and every page including deep links.
 
 ---
 
+## Time spent
+
+Roughly in proportion — the shape matters more than the totals:
+
+| Phase | Share | Notes |
+|---|---|---|
+| Reading the workbook | ~30% | By far the biggest cost, and the least visible. Four layout eras, two date defects that look identical and must be handled oppositely, and the vessel-matching question |
+| Schema and the two rules | ~10% | Small, and the part everything else leans on |
+| Import and audit | ~15% | Including making it idempotent and making the totals reconcile |
+| API and suggester | ~10% | |
+| The five screens | ~20% | Timeline lane-packing took the most of it |
+| Tests | ~10% | Paid for itself: the end-to-end layer found a real bug in the suggester |
+| This README | ~5% | |
+
+The single largest surprise was that the reference tabs describe a mostly *different*
+set of vessels from the schedule grid. That one fact reshaped the audit, the honest
+framing of the fit rule, and what the replay above is able to claim.
+
 ## Trade-offs, and what is not here
 
 **Known limits**
@@ -299,7 +340,13 @@ the heatmap grid, and every page including deep links.
 - **No authentication**, per A10. Every visitor can edit. A real deployment needs
   staff login before anything else.
 - **Mobile is view-only**; the timeline expects a laptop.
-- Keyboard: `←`/`→` move month, `N` opens a new booking, `T` jumps to today, `Esc` closes.
+- Keyboard: `←`/`→` move month, `N` opens a new booking, `T` jumps to today, `Esc` closes,
+  `⌘↵`/`Ctrl+↵` saves the booking form.
+- **No in-browser upload of a new workbook** (`POST /api/import`, a P1). The import makes
+  ~2,000 round trips and takes several seconds — comfortable as a CLI step against any
+  `DATABASE_URL`, but a poor fit for a serverless request that has to return in seconds.
+  Re-importing is `npm run import`, and it is idempotent, so this is a deliberate omission
+  rather than a missing feature.
 - The timeline fetches one month at a time. A year loads in well under a second, but
   a whole-history view would need windowing.
 
