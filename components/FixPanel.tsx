@@ -123,7 +123,7 @@ export default function FixPanel({
         </div>
 
         <footer className="flex items-center gap-2 border-t border-slate-200 px-5 py-3">
-          <button onClick={onClose} className="rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100">Close</button>
+          <button onClick={onClose} className="rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100">Cancel</button>
           <button onClick={cancelBooking} disabled={busy}
             className="ml-auto rounded-lg px-3 py-2 text-sm text-flag hover:bg-red-50">
             Cancel this booking

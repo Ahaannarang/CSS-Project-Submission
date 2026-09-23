@@ -91,8 +91,8 @@ Three additions that the data argued for:
 ## How to run it
 
 ```bash
-# 0. all tests: 86 unit + 129 end-to-end + 62 adversarial
-npm run test:all && npm run harden
+# 0. all tests: 86 unit + 129 end-to-end + 62 adversarial + 51 browser
+npm run test:all && npm run harden && npm run ui
 
 # 1. a Postgres with btree_gist (any Postgres 14+ will do)
 docker run -d --name berth-pg -e POSTGRES_PASSWORD=berth -e POSTGRES_USER=berth \
@@ -111,6 +111,7 @@ npm run dev        # http://localhost:3000
 npm test           # 86 unit tests
 npm run e2e        # 129 end-to-end checks (resets its own database, runs its own server)
 npm run harden     # 62 adversarial checks; pass a URL to run them against production
+npm run ui         # 51 browser checks driving the real UI; also takes a URL
 npm run replay     # re-runs 23 years under best-fit and prints the comparison
 npm run screenshots # regenerates the images above from the live site
 ```
@@ -278,7 +279,7 @@ Two assumptions were **added** while reading the real file:
 
 ## Testing
 
-Three layers, **277 checks** in total, and no mocks for the rules: they run against a
+Four layers, **328 checks** in total, and no mocks for the rules: they run against a
 real Postgres, because the rules *are* the database.
 
 `npm test` — **86 unit tests** over the rules, the suggester, the availability
@@ -290,6 +291,19 @@ repeatable and each check names the requirement it covers.
 `npm run harden` — **62 adversarial checks**: awkward calendars, hostile strings,
 wrong types, absurd ranges, and eight clients racing for one berth. It takes a URL,
 so it runs against production as well as locally.
+
+`npm run ui` — **51 browser checks** in a real Chromium, clicking what a coordinator
+clicks: month navigation by mouse and keyboard, the cross-year search, every audit
+tab, the fix flow, creating reference data, the availability search, the heatmap.
+It books only in 2044-2048 and cancels everything in a `finally`, so it is safe to
+point at production — which is where these numbers come from.
+
+Two things it checks that are easy to miss. A berth that has just been booked must
+*stop being offered* for overlapping dates, which is why a clash is hard to reach
+through the UI at all — so the inline-conflict path is exercised by deliberately
+stealing the slot over the API between the suggestion and the save, which is the
+real race a second coordinator would cause. And the browser console is asserted
+empty apart from the 409 that test provokes on purpose.
 
 ### What the adversarial pass found
 
@@ -333,6 +347,7 @@ the unit level too.
 | Events (5) | an event blocks a vessel and a vessel blocks an event; no title rejected; a vessel booking with no vessel rejected; events fit any berth |
 | Suggester (17) | smallest fitting berth first; oversized berths excluded; deterministic ordering; booked berths dropped; a booking ending the day before does not block; cancelled ignored; the two empty-result reasons distinguished; alternatives offered; the edited booking excluded from its own check; margin respected; **berths of unknown length kept out of the verified fits, offered separately, and never used to pad alternatives** |
 | Availability (15) | earliest window per berth; gaps between bookings used when long enough and skipped when not; flagged and cancelled rows do not occupy; unknown-length berths excluded; margin honoured; **every window it offers is then proved insertable against the live constraints** |
+| Browser (51) | timeline navigation, cross-year search, berth filter, booking end to end, the taken-berth-disappears rule, a mid-flight slot steal surfacing inline, every audit tab and the fix flow, reference-data creation, availability, stats and heatmap, vessel history, console cleanliness |
 | Adversarial (62) | leap years and non-leap 29 Feb; year-crossing and multi-year stays; malformed dates; SQL/XSS/unicode in titles, round-tripped unchanged; wrong types and out-of-range ids; inverted and 400-year windows; **eight concurrent bookings for one berth**; cancel → rebook → revive |
 | Parsing (30) | name variants fold; different prefixes stay apart; LOA vs name-suffix; metres; runs collapse into one stay; gaps split stays; the 2014 column shift; **weekday cross-check catches a bad mapping**; carry-over December honoured; typo year reported; spill-over and undated cells preserved; notes not booked; source keys stable |
 
