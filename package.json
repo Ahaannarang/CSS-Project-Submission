@@ -14,7 +14,9 @@
     "test:watch": "vitest",
     "e2e": "tsx scripts/e2e.ts",
     "test:all": "vitest run && tsx scripts/e2e.ts",
-    "replay": "tsx scripts/replay.ts"
+    "replay": "tsx scripts/replay.ts",
+    "harden": "tsx scripts/harden.mts",
+    "screenshots": "tsx scripts/screenshots.mts"
   },
   "dependencies": {
     "next": "^15.5.26",
@@ -29,6 +31,7 @@
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
     "dotenv": "^16.4.7",
+    "playwright": "^1.63.0",
     "tailwindcss": "^4.1.13",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",

@@ -8,6 +8,20 @@ import BookingPanel from './BookingPanel'
 const TODAY = new Date().toISOString().slice(0, 10)
 
 /**
+ * What to print inside a timeline bar.
+ *
+ * Most legacy stays are a single day, which is about 45px wide — only a few
+ * characters. Printing the full name there yields "R/V…", "M/V…", "S/V…" for
+ * every bar, so the one part that identifies the vessel is the part that gets
+ * cut. The designation prefix is dropped for the bar only; the full name stays
+ * in the tooltip and everywhere else.
+ */
+function barLabel(r: Reservation): string {
+  const full = r.vessel_name ?? r.title ?? ''
+  return full.replace(/^(R\/V|M\/V|M\/Y|S\/V|S\/Y|F\/V|OS\/V|OSV|Tug|Barge)\s+/i, '')
+}
+
+/**
  * Berths as rows, days as columns — the grid the coordinator already thinks in.
  *
  * Active bookings can never overlap, but flagged legacy rows can and do, so each
@@ -271,10 +285,10 @@ export default function Timeline({
                       return (
                         <button key={r.id}
                           onClick={() => setPanel({ mode: 'edit', reservation: r })}
-                          className={`tl-bar pointer-events-auto mx-[1px] truncate px-1.5 text-left text-[11px] font-medium leading-[22px] ${colour} ${clippedLeft ? 'rounded-l-none' : 'rounded-l'} ${clippedRight ? 'rounded-r-none' : 'rounded-r'} hover:brightness-110`}
+                          className={`tl-bar pointer-events-auto mx-[1px] truncate px-1 text-left text-[10px] font-medium leading-[22px] tracking-tight ${colour} ${clippedLeft ? 'rounded-l-none' : 'rounded-l'} ${clippedRight ? 'rounded-r-none' : 'rounded-r'} hover:brightness-110`}
                           style={{ gridColumn: `${startCol} / span ${span}`, gridRow: 1, marginTop: li * 26 + 6, height: 22 }}
                           title={`${r.vessel_name ?? r.title} · ${b.name} · ${fmtFull(r.start_date)} – ${fmtFull(r.end_date)}${r.status === 'flagged' ? ' · FLAGGED' : ''}`}>
-                          {clippedLeft ? '‹ ' : ''}{r.vessel_name ?? r.title}{clippedRight ? ' ›' : ''}
+                          {clippedLeft ? '‹' : ''}{barLabel(r)}{clippedRight ? '›' : ''}
                         </button>
                       )
                     }),

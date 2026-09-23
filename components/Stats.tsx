@@ -13,6 +13,9 @@ import { MONTHS } from '@/lib/dates'
  */
 const BAR = '#2a78d6'
 
+/** Tallest a monthly column may be, in pixels. */
+const MONTH_BAR_AREA = 150
+
 /**
  * Sequential blue, light -> dark, for the 23-year heatmap. Magnitude is the job,
  * so it is one hue with more meaning darker; a rainbow here would imply the
@@ -145,7 +148,9 @@ export default function Stats({ initialYear, years }: { initialYear: number; yea
       {/* Occupancy by month — columns over time, same single hue. */}
       <section className="rounded-xl border border-slate-300 bg-white px-5 py-4">
         <h2 className="text-sm font-semibold">Occupancy by month, {year}</h2>
-        <div className="mt-5 flex h-48 items-end gap-2">
+        {/* Pixel heights, not percentages: inside an items-end flex row a
+            percentage resolves against a content-sized parent and collapses. */}
+        <div className="mt-5 flex items-end gap-2" style={{ height: MONTH_BAR_AREA + 34 }}>
           {monthPct.map((m) => (
             <div key={m.month} className="group flex flex-1 flex-col items-center justify-end gap-1.5"
               title={`${MONTHS[m.month - 1]}: ${m.pct.toFixed(1)}% (${m.occupied_days} berth-days)`}>
@@ -153,7 +158,7 @@ export default function Stats({ initialYear, years }: { initialYear: number; yea
                 {m.pct.toFixed(0)}%
               </span>
               <div className="w-full rounded-t-[4px] transition-[filter] group-hover:brightness-110"
-                style={{ height: `${Math.max((m.pct / maxMonth) * 100, 1)}%`, background: BAR, minHeight: 2 }} />
+                style={{ height: Math.max(Math.round((m.pct / maxMonth) * MONTH_BAR_AREA), 3), background: BAR }} />
               <span className="text-[11px] text-slate-500">{MONTHS[m.month - 1].slice(0, 3)}</span>
             </div>
           ))}

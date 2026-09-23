@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql } from '@/lib/db'
-import { berthInput, zodMessage } from '@/lib/validate'
+import { berthInput, zodMessage, parseId } from '@/lib/validate'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,12 +13,14 @@ export const dynamic = 'force-dynamic'
  * caller confirms, then flags the ones now too long.
  */
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const { id } = await ctx.params
+  const { id: rawId } = await ctx.params
+  const id = parseId(rawId)
+  if (id == null) return NextResponse.json({ error: 'not_found' }, { status: 404 })
   const body = await req.json().catch(() => ({}))
   const parsed = berthInput.partial().safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: 'invalid_request', message: zodMessage(parsed.error) }, { status: 400 })
 
-  const [current] = await sql<any[]>`SELECT id, name, length_ft FROM berths WHERE id = ${Number(id)}`
+  const [current] = await sql<any[]>`SELECT id, name, length_ft FROM berths WHERE id = ${id}`
   if (!current) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
   const newLength = parsed.data.length_ft === undefined ? current.length_ft : parsed.data.length_ft
@@ -29,7 +31,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       SELECT r.id, v.name AS vessel, v.length_ft,
              lower(r.during)::text AS start_date, (upper(r.during) - 1)::text AS end_date
       FROM reservations r JOIN vessels v ON v.id = r.vessel_id
-      WHERE r.berth_id = ${Number(id)} AND r.status = 'active'
+      WHERE r.berth_id = ${id} AND r.status = 'active'
         AND v.length_ft > ${newLength}::numeric
       ORDER BY lower(r.during)`
     if (affected.length && !body.confirm) {
@@ -45,7 +47,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       for (const a of affected) {
         await sql`
           INSERT INTO import_issues (reservation_id, kind, year, berth_id, detail, issue_key)
-          VALUES (${a.id}, 'misfit', ${Number(a.start_date.slice(0, 4))}, ${Number(id)},
+          VALUES (${a.id}, 'misfit', ${Number(a.start_date.slice(0, 4))}, ${id},
                   ${sql.json({ vessel: a.vessel, vessel_ft: Number(a.length_ft), berth: current.name, berth_ft: Number(newLength), reason: 'berth was shortened below this vessel' })},
                   ${`misfit|shortened|${a.id}`})
           ON CONFLICT (issue_key) WHERE issue_key IS NOT NULL DO NOTHING`
@@ -58,6 +60,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       name      = ${parsed.data.name ?? current.name},
       length_ft = ${newLength},
       notes     = ${parsed.data.notes === undefined ? sql`notes` : parsed.data.notes}
-    WHERE id = ${Number(id)}`
-  return NextResponse.json({ id: Number(id), length_ft: newLength })
+    WHERE id = ${id}`
+  return NextResponse.json({ id: id, length_ft: newLength })
 }

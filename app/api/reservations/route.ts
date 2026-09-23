@@ -1,18 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql } from '@/lib/db'
 import { mapPgError, HttpError } from '@/lib/errors'
-import { reservationInput, toRange, zodMessage } from '@/lib/validate'
+import { reservationInput, toRange, zodMessage, parseId, parseDate } from '@/lib/validate'
 
 export const dynamic = 'force-dynamic'
 
 /** FR8/FR13: reservations in a window, optionally filtered. */
 export async function GET(req: NextRequest) {
   const p = req.nextUrl.searchParams
-  const from = p.get('from') ?? '1997-01-01'
-  const to = p.get('to') ?? '2030-01-01'
-  const berth = p.get('berth')
-  const vessel = p.get('vessel')
+  const from = parseDate(p.get('from')) ?? '1900-01-01'
+  const to = parseDate(p.get('to')) ?? '2200-01-01'
+  const berth = parseId(p.get('berth'))
+  const vessel = parseId(p.get('vessel'))
   const q = p.get('q')
+
+  // A window that ends before it starts contains nothing. Handing it to
+  // daterange() instead raises "range lower bound must be <= upper bound".
+  if (to <= from) return NextResponse.json({ reservations: [] })
 
   const rows = await sql`
     SELECT r.id, r.berth_id, r.vessel_id, r.kind, r.title, r.status, r.source,
@@ -26,8 +30,8 @@ export async function GET(req: NextRequest) {
     JOIN berths b ON b.id = r.berth_id
     WHERE r.during && daterange(${from}::date, ${to}::date, '[)')
       AND r.status <> 'cancelled'
-      ${berth ? sql`AND r.berth_id = ${Number(berth)}` : sql``}
-      ${vessel ? sql`AND r.vessel_id = ${Number(vessel)}` : sql``}
+      ${berth ? sql`AND r.berth_id = ${berth}` : sql``}
+      ${vessel ? sql`AND r.vessel_id = ${vessel}` : sql``}
       ${q ? sql`AND (v.name ILIKE ${'%' + q + '%'} OR r.title ILIKE ${'%' + q + '%'} OR b.name ILIKE ${'%' + q + '%'})` : sql``}
     ORDER BY lower(r.during), b.sort_order
     LIMIT 20000`

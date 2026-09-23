@@ -29,15 +29,25 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ grid, berth_count: berthCount[0].n })
   }
 
-  const year = Number(req.nextUrl.searchParams.get('year') ?? new Date().getFullYear())
+  // make_date() raises outside a sane range, so clamp rather than 500.
+  const requested = Number(req.nextUrl.searchParams.get('year') ?? new Date().getFullYear())
+  const year = Number.isInteger(requested) && requested >= 1900 && requested <= 2200
+    ? requested
+    : new Date().getFullYear()
   const from = `${year}-01-01`
   const to = `${year + 1}-01-01`
 
   const [perBerth, perMonth, busiest, span] = await Promise.all([
+    // The CASE is load-bearing. LEAST and GREATEST IGNORE nulls in Postgres, so
+    // for a berth the LEFT JOIN found nothing for, LEAST(upper(NULL), to) is
+    // just `to` and GREATEST(lower(NULL), from) is `from` — which made every
+    // unused berth report the whole window as occupied, i.e. 100%.
     sql`
       SELECT b.id, b.name, b.length_ft,
              COALESCE(SUM(
-               GREATEST(0, LEAST(upper(r.during), ${to}::date) - GREATEST(lower(r.during), ${from}::date))
+               CASE WHEN r.id IS NULL THEN 0
+                    ELSE GREATEST(0, LEAST(upper(r.during), ${to}::date) - GREATEST(lower(r.during), ${from}::date))
+               END
              ), 0)::int AS occupied_days,
              (${to}::date - ${from}::date) AS window_days
       FROM berths b
@@ -47,8 +57,10 @@ export async function GET(req: NextRequest) {
     sql`
       SELECT m.month::int AS month,
              COALESCE(SUM(
-               GREATEST(0, LEAST(upper(r.during), (m.month_start + interval '1 month')::date)
-                         - GREATEST(lower(r.during), m.month_start))
+               CASE WHEN r.id IS NULL THEN 0
+                    ELSE GREATEST(0, LEAST(upper(r.during), (m.month_start + interval '1 month')::date)
+                                   - GREATEST(lower(r.during), m.month_start))
+               END
              ), 0)::int AS occupied_days,
              (SELECT count(*)::int FROM berths) *
                EXTRACT(DAY FROM (m.month_start + interval '1 month' - interval '1 day'))::int AS capacity_days

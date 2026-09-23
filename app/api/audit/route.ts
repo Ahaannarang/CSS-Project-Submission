@@ -1,23 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql } from '@/lib/db'
+import { parseId } from '@/lib/validate'
 
 export const dynamic = 'force-dynamic'
+
+/** Casting an unrecognised string to issue_kind raises, so gate it here. */
+const ISSUE_KINDS = [
+  'overlap', 'misfit', 'parse_error', 'unknown_berth',
+  'unknown_vessel', 'vessel_conflict', 'annotation',
+] as const
+
+const parseYear = (raw: string | null): number | null => {
+  if (!raw) return null
+  const n = Number(raw)
+  return Number.isInteger(n) && n >= 1900 && n <= 2200 ? n : null
+}
 
 /** FR7: the audit report, filterable by year, berth and issue kind. */
 export async function GET(req: NextRequest) {
   const p = req.nextUrl.searchParams
-  const year = p.get('year')
-  const kind = p.get('kind')
-  const berth = p.get('berth')
+  const year = parseYear(p.get('year'))
+  const rawKind = p.get('kind')
+  const kind = rawKind && (ISSUE_KINDS as readonly string[]).includes(rawKind) ? rawKind : null
+  const berth = parseId(p.get('berth'))
   const showResolved = p.get('resolved') === '1'
   const limit = Math.min(Number(p.get('limit') ?? 200), 1000)
   const offset = Number(p.get('offset') ?? 0)
 
   const where = sql`
     WHERE TRUE
-      ${year ? sql`AND i.year = ${Number(year)}` : sql``}
+      ${year ? sql`AND i.year = ${year}` : sql``}
       ${kind ? sql`AND i.kind = ${kind}::issue_kind` : sql``}
-      ${berth ? sql`AND i.berth_id = ${Number(berth)}` : sql``}
+      ${berth ? sql`AND i.berth_id = ${berth}` : sql``}
       ${showResolved ? sql`` : sql`AND i.resolved = false`}`
 
   const [issues, counts, byYear, run, totals] = await Promise.all([
@@ -39,7 +53,7 @@ export async function GET(req: NextRequest) {
       SELECT i.year, count(*)::int AS n FROM import_issues i
       WHERE i.year IS NOT NULL AND i.resolved = false
         ${kind ? sql`AND i.kind = ${kind}::issue_kind` : sql``}
-        ${berth ? sql`AND i.berth_id = ${Number(berth)}` : sql``}
+        ${berth ? sql`AND i.berth_id = ${berth}` : sql``}
       GROUP BY i.year ORDER BY i.year`,
     sql`SELECT source, started_at, stats FROM import_runs ORDER BY id DESC LIMIT 1`,
     sql`SELECT count(*)::int AS n FROM import_issues i ${where}`,

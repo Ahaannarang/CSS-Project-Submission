@@ -4,7 +4,19 @@ Berth replaces a hand-kept spreadsheet grid with a system where **a double-booki
 is not something the UI discourages — it is something the database refuses to
 store.** Same for putting a 170 ft vessel on a 90 ft float.
 
-**Live URL:** _(see “Deploying” below — the app runs locally against Postgres today)_
+**Live URL: https://css-project-submission.vercel.app** — Next.js on Vercel, Postgres on Neon.
+
+![The timeline](docs/timeline.png)
+*Berths as rows, days as columns. Blue vessels, green events, red flagged history. The search box searches all 23 years, not just the month on screen.*
+
+![Booking with live suggestions](docs/booking.png)
+*Berths re-rank as the dates change: best fit first, then slack. Berths with no recorded length are kept out of the ranking and offered separately as “fit unknown”, because the rule cannot be applied to them.*
+
+![The audit](docs/audit.png)
+*What 23 years of the hand-kept schedule looks like once every booking is checked. Each tab is a different way the old grid was wrong; “Fix” reassigns a flagged booking to a berth that actually fits.*
+
+![Utilisation](docs/stats.png)
+*Occupancy per berth and per month, plus every month of the record in one heatmap.*
 
 | Screen | What it is for |
 |---|---|
@@ -79,8 +91,8 @@ Three additions that the data argued for:
 ## How to run it
 
 ```bash
-# 0. all tests: 86 unit + 125 end-to-end
-npm run test:all
+# 0. all tests: 86 unit + 129 end-to-end + 62 adversarial
+npm run test:all && npm run harden
 
 # 1. a Postgres with btree_gist (any Postgres 14+ will do)
 docker run -d --name berth-pg -e POSTGRES_PASSWORD=berth -e POSTGRES_USER=berth \
@@ -97,8 +109,10 @@ npm run import
 # 4. go
 npm run dev        # http://localhost:3000
 npm test           # 86 unit tests
-npm run e2e        # 125 end-to-end checks (resets its own database, runs its own server)
+npm run e2e        # 129 end-to-end checks (resets its own database, runs its own server)
+npm run harden     # 62 adversarial checks; pass a URL to run them against production
 npm run replay     # re-runs 23 years under best-fit and prints the comparison
+npm run screenshots # regenerates the images above from the live site
 ```
 
 ## How to use it
@@ -264,14 +278,39 @@ Two assumptions were **added** while reading the real file:
 
 ## Testing
 
-Two layers, **211 checks** in total, and no mocks for the rules: they run against a
+Three layers, **277 checks** in total, and no mocks for the rules: they run against a
 real Postgres, because the rules *are* the database.
 
 `npm test` — **86 unit tests** over the rules, the suggester, the availability
 search and the parser.
-`npm run e2e` — **125 end-to-end checks** over real HTTP. It resets its own
+`npm run e2e` — **129 end-to-end checks** over real HTTP. It resets its own
 database, imports the workbook, starts its own server and tears it down, so it is
 repeatable and each check names the requirement it covers.
+
+`npm run harden` — **62 adversarial checks**: awkward calendars, hostile strings,
+wrong types, absurd ranges, and eight clients racing for one berth. It takes a URL,
+so it runs against production as well as locally.
+
+### What the adversarial pass found
+
+The happy paths were already covered; this pass went looking for trouble and found
+ten real defects, all shipped since. The most interesting three:
+
+- **Every idle berth reported 100% occupancy.** Postgres's `LEAST` and `GREATEST`
+  *ignore* NULLs, so for a berth the `LEFT JOIN` matched nothing for,
+  `LEAST(upper(NULL), to)` is just `to` — and the berth computed as fully booked for
+  the whole window. 2019 read 51.7% occupied when the true figure is 1.7%. A `CASE
+  WHEN r.id IS NULL` guard fixes it, and a regression check now pins it.
+- **Seven endpoints returned 500 on bad input** — a non-numeric id, a year of
+  `99999`, an unknown issue kind, a date of `2035-02-29`. Each was a value reaching
+  SQL that should have been refused at the edge. Dates are now checked for *existence*,
+  not just shape; ids are bounded to int4; enum values are matched against a list.
+- **An event could be posted with a `vessel_id`** and the API would quietly drop it,
+  accepting a request that meant something the caller did not get. It now refuses.
+
+And the thing that mattered most came back clean: **eight simultaneous bookings for
+one berth produced exactly one winner and seven clean 409s, with no 500s.** That is
+the exclusion constraint doing work no application-level check could do safely.
 
 ### The end-to-end tests earned their keep immediately
 
@@ -294,6 +333,7 @@ the unit level too.
 | Events (5) | an event blocks a vessel and a vessel blocks an event; no title rejected; a vessel booking with no vessel rejected; events fit any berth |
 | Suggester (17) | smallest fitting berth first; oversized berths excluded; deterministic ordering; booked berths dropped; a booking ending the day before does not block; cancelled ignored; the two empty-result reasons distinguished; alternatives offered; the edited booking excluded from its own check; margin respected; **berths of unknown length kept out of the verified fits, offered separately, and never used to pad alternatives** |
 | Availability (15) | earliest window per berth; gaps between bookings used when long enough and skipped when not; flagged and cancelled rows do not occupy; unknown-length berths excluded; margin honoured; **every window it offers is then proved insertable against the live constraints** |
+| Adversarial (62) | leap years and non-leap 29 Feb; year-crossing and multi-year stays; malformed dates; SQL/XSS/unicode in titles, round-tripped unchanged; wrong types and out-of-range ids; inverted and 400-year windows; **eight concurrent bookings for one berth**; cancel → rebook → revive |
 | Parsing (30) | name variants fold; different prefixes stay apart; LOA vs name-suffix; metres; runs collapse into one stay; gaps split stays; the 2014 column shift; **weekday cross-check catches a bad mapping**; carry-over December honoured; typo year reported; spill-over and undated cells preserved; notes not booked; source keys stable |
 
 The end-to-end suite walks FR1–FR15 in order: creating vessel and event bookings,
@@ -411,4 +451,12 @@ npm run db:migrate && npm run import      # seed production from the workbook
 npx vercel --prod                          # set DATABASE_URL in the Vercel dashboard
 ```
 
-SSL is enabled automatically for any non-localhost URL.
+SSL is enabled automatically for any non-localhost URL, and a pooled Neon endpoint
+(`-pooler` in the host) turns off prepared statements, which pgbouncer's transaction
+mode cannot hold across statements.
+
+Deployed exactly this way: `vercel integration add neon` provisions the database and
+injects `DATABASE_URL`; the schema and import run from a laptop against the unpooled
+endpoint; `vercel deploy --prod` ships the app. `btree_gist` is available on Neon, so
+the exclusion constraint the whole design rests on is enforced in production exactly
+as it is locally — verified against the live URL, not assumed.

@@ -216,14 +216,22 @@ function timelineLink(i: Issue): string | null {
 function describe(i: Issue) {
   const d = i.detail ?? {}
   switch (i.kind) {
-    case 'misfit':
+    case 'misfit': {
+      // Older rows may predate the structured lengths, so fall back to the
+      // joined reservation rather than rendering "in a  ft berth".
+      const vFt = d.vessel_ft ?? i.vessel_length_ft
+      const bFt = d.berth_ft
       return (
         <span>
           <span className="font-medium">{d.vessel ?? i.vessel_name}</span>
-          {d.vessel_ft ? ` (${d.vessel_ft} ft)` : ''} in a {d.berth_ft ?? i.detail?.berth_ft} ft berth
-          {d.vessel_ft && d.berth_ft ? <span className="ml-1 text-flag">· {Number(d.vessel_ft) - Number(d.berth_ft)} ft too long</span> : null}
+          {vFt ? ` (${Number(vFt)} ft)` : ''}
+          {bFt ? ` in a ${Number(bFt)} ft berth` : ' on a berth too short for it'}
+          {vFt && bFt ? (
+            <span className="ml-1 text-flag">· {Number(vFt) - Number(bFt)} ft too long</span>
+          ) : null}
         </span>
       )
+    }
     case 'overlap':
       return (
         <span>
@@ -243,6 +251,9 @@ function describe(i: Issue) {
       return <span className="text-slate-600">{d.text ?? d.reason}</span>
   }
 }
+
+/** Tallest a bar may be, in pixels. */
+const BAR_AREA = 84
 
 /**
  * Issues per year — the PRD's "spots bad seasons" view.
@@ -267,7 +278,10 @@ function ByYear({ rows, active, onPick }: { rows: any[]; active: string; onPick:
           {active ? ' · click a bar again to clear' : ' · click a bar to filter'}
         </p>
       </div>
-      <div className="mt-4 flex h-28 items-end gap-1">
+      {/* Bar heights are computed in pixels on purpose. A percentage height
+          inside an items-end flex row resolves against a content-sized parent,
+          which collapses every bar to a hairline. */}
+      <div className="mt-4 flex items-end gap-1" style={{ height: BAR_AREA + 26 }}>
         {rows.map((r) => {
           const on = String(r.year) === active
           return (
@@ -280,9 +294,8 @@ function ByYear({ rows, active, onPick }: { rows: any[]; active: string; onPick:
               </span>
               <span className="w-full rounded-t-[3px] transition-[filter] group-hover:brightness-110"
                 style={{
-                  height: `${Math.max((r.n / max) * 100, 2)}%`,
+                  height: Math.max(Math.round((r.n / max) * BAR_AREA), 3),
                   background: on ? '#104281' : '#2a78d6',
-                  minHeight: 2,
                 }} />
               <span className={`text-[10px] tabular-nums ${on ? 'font-semibold text-slate-900' : 'text-slate-500'}`}>
                 {String(r.year).slice(2)}

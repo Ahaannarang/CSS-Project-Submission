@@ -139,9 +139,14 @@ async function main() {
     const berthId = berthIds.get(r.berthName)!
     const vesselId = r.kind === 'vessel' ? vesselIds.get(r.entityKey.slice(2))! : null
     const during = `[${r.startDate},${addDays(r.endDate, 1)})`   // A1 -> A2
+    const vesselFt = r.kind === 'vessel' ? regByKey.get(r.entityKey.slice(2))?.lengthFt ?? null : null
     const detail = {
       berth: r.berthName, start: r.startDate, end: r.endDate, days: r.days,
       vessel: r.vesselDisplay, title: r.title, refs: r.refs.slice(0, 8),
+      // The audit renders the shortfall from these, so they have to be
+      // structured fields, not only prose inside the error message.
+      vessel_ft: vesselFt,
+      berth_ft: r.berthLengthFt,
     }
 
     const insert = (status: 'active' | 'flagged') => sql`

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql } from '@/lib/db'
-import { vesselInput, zodMessage } from '@/lib/validate'
+import { vesselInput, zodMessage, parseId } from '@/lib/validate'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,8 +38,8 @@ export async function POST(req: NextRequest) {
 /** Setting a length on a vessel that had none is the main way to close the data gap. */
 export async function PATCH(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
-  const id = Number(body.id)
-  if (!id) return NextResponse.json({ error: 'invalid_request', message: 'id is required.' }, { status: 400 })
+  const id = parseId(body.id)
+  if (id == null) return NextResponse.json({ error: 'invalid_request', message: 'A valid id is required.' }, { status: 400 })
   const parsed = vesselInput.partial().safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: 'invalid_request', message: zodMessage(parsed.error) }, { status: 400 })
 

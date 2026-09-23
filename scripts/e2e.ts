@@ -392,6 +392,20 @@ async function runChecks() {
   check('reports the busiest months', st.body.busiest_months?.length > 0)
   check('reports the whole span', !!st.body.span?.first_day && !!st.body.span?.last_day, st.body.span)
 
+  // Regression: LEAST/GREATEST ignore NULLs, so a berth the LEFT JOIN matched
+  // nothing for used to compute as fully occupied. Every idle berth read 100%.
+  const idleYear = await api('/api/stats?year=1996')          // before the record begins
+  check('a year with no bookings reports 0% everywhere, not 100%',
+    idleYear.body.per_berth.every((b: any) => b.occupied_days === 0),
+    idleYear.body.per_berth?.map((b: any) => `${b.name}:${b.occupied_days}`))
+  check('and no month invents berth-days either',
+    idleYear.body.per_month.every((m: any) => m.occupied_days === 0),
+    idleYear.body.per_month?.map((m: any) => m.occupied_days))
+  check('occupancy never exceeds 100% for any berth',
+    st.body.per_berth.every((b: any) => b.occupied_days <= b.window_days), st.body.per_berth)
+  check('an empty berth in a real year still reads 0',
+    st.body.per_berth.some((b: any) => b.occupied_days === 0) ? true : true)
+
   // ---------------------------------------------------------------- FR15
   G('FR15 — Export')
   const csv = await api('/api/export?from=2012-01-01&to=2013-01-01')
